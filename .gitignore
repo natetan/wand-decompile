@@ -1,0 +1,21 @@
+# Local application, profiles, trainers, backups, and generated analysis
+/local-wand/
+/analysis/
+/node_modules/
+
+# Proprietary binaries and local shortcuts, wherever generated
+*.exe
+*.dll
+*.node
+*.asar
+*.lnk
+*.original
+*.bak
+
+# Logs, crash dumps, and local credentials
+*.log
+*.dmp
+*.mdmp
+.env
+.env.*
+!.env.example

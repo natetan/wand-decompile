@@ -1,0 +1,13 @@
+{
+  "name": "wand-local-build",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Version-checked builder for a separate local Wand installation",
+  "scripts": {
+    "plan": "node scripts/build-local.cjs --dry-run",
+    "build": "node scripts/build-local.cjs",
+    "update": "node scripts/build-local.cjs --update",
+    "verify": "node scripts/build-local.cjs --verify"
+  },
+  "engines": { "node": ">=18.17" }
+}
