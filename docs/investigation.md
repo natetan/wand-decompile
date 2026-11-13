@@ -50,3 +50,13 @@ The successful Slay the Spire 2 log recorded `DLL injection succeeded`, `Trainer
 The user subsequently confirmed working cheats in Slay the Spire 2 and reported that Mirage worked perfectly. The timer/ad patches remained in the active archive. A session longer than two hours, every ad placement, every option, and every future game have not been independently verified. Sponsored dashboard promotions can still appear.
 
 Raw logs, extracted proprietary code, full call-edge dumps, and obsolete exploration scripts remain in the ignored local `analysis/` directory. They are not required to run the consolidated builder.
+
+## Local pinning addition
+
+The desktop pinning context is module `5473` in `app-b37ddaa5.39a1bc99821fabdf810c.bundle.js`. Its dedicated `canUsePinnedMods` getter gates pinning; the shared icon uses that getter to decide whether to invoke an upgrade prompt. Overlay counterparts in the `app-3d588d45` and `overlay-3d588d45` bundles forward pin changes to the host.
+
+The builder changes only these pin-specific getters. It replaces `getPinnedMods`/`updatePinnedMods` in `app-f05ae505.07e6c696900b386d304c.bundle.js` with local per-game storage, saves before updating the visible pin state, and restores the local selection when initializing a trainer. `profile/App/local-pins.json` is written through a temporary file and replacement. Collection methods and account-level Pro/subscription checks are unchanged. The profile remains the storage boundary; pin preferences are not synchronized through Wand's pin API.
+
+Validation included pin/unpin ordering, separate game keys, malformed data, failed storage writes, and execution of the actual patched service methods without an API object. The updated archive's 801 packed member hashes validate. The desktop pin button was observed adding Unlimited HP to a Pinned section without opening an upgrade prompt. The local helper is unchanged from the previously tested trainer build.
+
+The final file-backed implementation restored that test pin after a complete application restart. Unpinning cleared the saved game selection, and the temporary test pin was removed. An earlier browser-storage prototype failed the restart test and was replaced before delivery. The in-game overlay pin control shares the host pin path but has not been separately exercised in a running game.

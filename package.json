@@ -7,7 +7,8 @@
     "plan": "node scripts/build-local.cjs --dry-run",
     "build": "node scripts/build-local.cjs",
     "update": "node scripts/build-local.cjs --update",
-    "verify": "node scripts/build-local.cjs --verify"
+    "verify": "node scripts/build-local.cjs --verify",
+    "test": "node tests/local-pins.test.cjs"
   },
-  "engines": { "node": ">=18.17" }
+  "engines": { "node": ">=16.14" }
 }

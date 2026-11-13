@@ -10,12 +10,13 @@ The repository contains the builder and research notes. It does **not** contain 
 - User-tested: cheats work in **Slay the Spire 2** and **Assassin's Creed Mirage**.
 - The successful Slay log confirms DLL injection, trainer initialization, and readiness. Two assembly warnings appeared; individual trainer options can still depend on game/trainer compatibility.
 - The local timer service is disabled. A session beyond two hours has not been independently measured.
+- The existing pin button supports local mod pinning. Pins are stored per game in this copy's profile, with no pin-preference API updates or subscription-status changes.
 - Display ads, rewarded ads, and the dedicated ads partition are disabled. Dashboard promotions and other uninvestigated placements can still appear.
 - Login, catalog access, trainer selection/downloads, and other online features still use Wand's services. This is not a fully offline clone.
 
 ## Build or verify
 
-Requires Windows, Node.js 18.17+ and the supported Wand installation. There are no npm dependencies and no `npm install` step. REA is needed for investigating new releases, not for rebuilding this known release.
+Requires Windows, Node.js 16.14+ and the supported Wand installation. There are no npm dependencies and no `npm install` step. REA is needed for investigating new releases, not for rebuilding this known release.
 
 From the repository root:
 
@@ -35,6 +36,14 @@ Open `local-wand\Launch Wand Local.cmd`, or `local-wand\app-12.72.0\Wand.exe`. T
 The independent profile lives at `local-wand\profile`. A fresh build starts without copied credentials; sign in manually. Rebuilding retains this profile and its cached trainers.
 
 The equivalent npm commands are `npm run plan`, `npm run build`, `npm run verify`, and `npm run update`.
+
+## Local mod pinning
+
+Click the pin beside a mod to add or remove it from the pinned section. The patch enables only the dedicated pinning check, including its overlay counterpart. Other Pro feature checks and the account subscription are unchanged by this feature.
+
+Pin preferences are saved immediately to `local-wand\profile\App\local-pins.json`, keyed by `wand-local:pins:v1:<gameId>`. Writes use a temporary file followed by replacement. Pins survive local app rebuilds, stay separate between games, and are shared by accounts using that same local profile. They do not sync to Wand's servers or another installation. Deleting this file or the profile removes them. A trainer update that changes mod identifiers may require repinning the affected mods.
+
+Run `npm test` to check the local pin storage behavior. The builder checks that the pinning code is present as part of output verification.
 
 ## New games and trainers
 
@@ -95,6 +104,8 @@ Validate a fresh output directory, confirm its packed-member and executable/head
 | Path | Purpose |
 | --- | --- |
 | `scripts/build-local.cjs` | Source discovery, version guards, patches, staging, backup, and on-disk verification |
+| `scripts/local-pins.cjs` | Local pin read/write functions embedded by the builder |
+| `tests/local-pins.test.cjs` | Pin persistence, game isolation, malformed data, and failed-write checks |
 | `docs/investigation.md` | Concise REA findings and the tested native change |
 | `package.json` | Optional command aliases; no dependencies |
 | `.gitignore` | Excludes generated/proprietary files, profiles, logs, and backups |

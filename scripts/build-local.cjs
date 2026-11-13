@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const vm = require('node:vm');
 const os = require('node:os');
+const { readPins, writePins, createFileStorage } = require('./local-pins.cjs');
 
 const repo = path.resolve(__dirname, '..');
 const helperRelative = 'resources/app.asar.unpacked/static/unpacked/auxiliary/WandAuxiliaryService.exe';
@@ -102,6 +103,20 @@ function patchArchive(original) {
       text = feature(text, 'get isEnabled(){return this.isEnabledForUser&&!this.account?.subscription}', 'get isEnabled(){return false}', 'disable daily timer', file.member);
       text = feature(text, 'accountChanged(){(0,w.Lt)(this.account?.flags,p.GQ.AdDeveloper)?this.active=!0:this.account?.subscription?this.active=!1:this.active=!0}', 'accountChanged(){this.active=false;this.src=null}', 'disable display ads', file.member);
       text = feature(text, 'get canStart(){return this.remoteFlagEnabled&&!!this.account&&!this.account.subscription}', 'get canStart(){return false}', 'disable rewarded ads', file.member);
+      if (['app-3d588d45.47cb050c661c12db54d6.bundle.js', 'app-b37ddaa5.39a1bc99821fabdf810c.bundle.js', 'overlay-3d588d45.5b2296217e4dc11a0812.bundle.js'].includes(file.member)) {
+        text = feature(text, 'get canUsePinnedMods(){return this.modsListContext.isPro}', 'get canUsePinnedMods(){return true}', `enable local pinning only (${file.member})`, file.member);
+      }
+      text = feature(text, 'await this.#e.dispatch(p.oz,this.modsListContext.trainer.gameId,t),this.#i(()=>this.#a.updatePinnedMods(this.modsListContext.trainer.gameId??"",t.map(e=>e.uuid)))', 'await this.#a.updatePinnedMods(this.modsListContext.trainer.gameId??"",t.map(e=>e.uuid)),await this.#e.dispatch(p.oz,this.modsListContext.trainer.gameId,t)', 'persist pins immediately', file.member);
+      if (file.member === 'app-b37ddaa5.39a1bc99821fabdf810c.bundle.js') {
+        const restoreStart = text.indexOf('async#n(){this.disableAutoPins');
+        const restoreEnd = text.indexOf('async#g(){', restoreStart);
+        assert(restoreStart >= 0 && restoreEnd > restoreStart, 'Pin restoration method anchor missing');
+        text = text.slice(0, restoreStart) + 'async#n(){const e=this.modsListContext.trainer;if(!e)return;const t=e.gameId??"",s=await this.#a.getPinnedMods(t)||[],i=s.map(t=>e.blueprint.cheats.find(e=>e.uuid===t)).filter(Boolean),a=this.pinnedMods?.[t]||[];if(a.length!==i.length||a.some((e,t)=>e.uuid!==i[t]?.uuid))await this.#e.dispatch(p.oz,e.gameId,i)}' + text.slice(restoreEnd);
+        seen.add('restore local pins'); changes.push(`${file.member}: restore local pins on trainer initialization`);
+      }
+      const pinStorage = `(${createFileStorage.toString()})(s(35392),s(24824).S().info.paths.storage+"/local-pins.json")`;
+      text = feature(text, 'async getPinnedMods(e){return(await this.#R(e)).pinnedMods}', `async getPinnedMods(e){return (${readPins.toString()})(${pinStorage},e)}`, 'read pins from local profile', file.member);
+      text = feature(text, 'async updatePinnedMods(e,t){const s=await this.#e.updatePinnedMods(e,t);return this.#b(e,{pinnedMods:s.data}),s}', `async updatePinnedMods(e,t){return (${writePins.toString()})(${pinStorage},e,t)}`, 'write pins to local profile', file.member);
       if (file.member === 'index.js') {
         const start = text.indexOf('let r=qt.getPath("userData");');
         const end = text.indexOf('initializeConfig(t.platform());', start);
@@ -131,7 +146,7 @@ function patchArchive(original) {
     parts.push(bytes);
     offset += bytes.length;
   }
-  assert(seen.size === 3 && changes.includes('index.js: isolate profile'), 'Required patches were not all applied');
+  assert(seen.size === 10 && changes.includes('index.js: isolate profile'), 'Required patches were not all applied');
   const json = Buffer.from(JSON.stringify(asar.tree));
   const payloadSize = Math.ceil((4 + json.length) / 4) * 4;
   const header = Buffer.alloc(4 + payloadSize), size = Buffer.alloc(8);
@@ -158,7 +173,7 @@ function prepare(source) {
   return { archive: patched.bytes, executable, helper, launcher, source, changes: [...patched.changes, 'Wand.exe: regenerate embedded archive-header digest', 'auxiliary helper: override WinVerifyTrust wrapper result; preserve certificate allowlist and later checks'] };
 }
 
-function verifyApp(app, expected) {
+function verifyApp(app, expected, requireLocalPins = false) {
   const archive = fs.readFileSync(path.join(app, 'resources/app.asar'));
   const asar = readAsar(archive);
   for (const file of asar.files) {
@@ -169,13 +184,15 @@ function verifyApp(app, expected) {
   const read = prefix => asar.files.filter(f => f.member.startsWith(prefix)).map(f => f.bytes.toString()).join('\n');
   const code = read('app-');
   for (const anchor of ['get isEnabled(){return false}', 'accountChanged(){this.active=false;this.src=null}', 'get canStart(){return false}']) assert(code.includes(anchor), `Missing patched behavior: ${anchor}`);
+  const localPins = code.includes('get canUsePinnedMods(){return true}') && code.includes('wand-local:pins:v1:') && code.includes('async getPinnedMods(e){return (function readPins') && code.includes('async updatePinnedMods(e,t){return (function writePins') && code.includes('/local-pins.json') && code.includes('async#n(){const e=this.modsListContext.trainer;');
+  if (requireLocalPins) assert(localPins, 'Local pinning patch is missing');
   const main = asar.files.find(f => f.member === 'index.js')?.bytes.toString();
   assert(main?.includes('const localProfile=n.resolve(n.dirname(process.execPath),"..","profile")'), 'Profile is not isolated at the expected root');
   const executable = fs.readFileSync(path.join(app, 'Wand.exe'));
   assert(executable.indexOf(hash(asar.header)) >= 0, 'Executable/header digest mismatch');
   const hashes = { archive: hash(archive), executable: hash(executable), helper: hash(fs.readFileSync(path.join(app, helperRelative))) };
   for (const key of Object.keys(hashes)) assert(hashes[key] === expected[key], `Unexpected ${key} digest`);
-  return { ...hashes, packedFiles: asar.files.length };
+  return { ...hashes, packedFiles: asar.files.length, localPins };
 }
 
 function inside(root, target) {
@@ -206,7 +223,7 @@ function install(output, prepared, update) {
   fs.writeFileSync(path.join(stage, 'resources/app.asar'), prepared.archive);
   fs.writeFileSync(path.join(stage, 'Wand.exe'), prepared.executable);
   fs.writeFileSync(path.join(stage, helperRelative), prepared.helper);
-  const measured = verifyApp(stage, { archive: hash(prepared.archive), executable: hash(prepared.executable), helper: hash(prepared.helper) });
+  const measured = verifyApp(stage, { archive: hash(prepared.archive), executable: hash(prepared.executable), helper: hash(prepared.helper) }, true);
   const backup = path.join(output, 'backups', `app-${supported.version}-${stamp}`);
   let oldMoved = false;
   try {
@@ -225,7 +242,7 @@ function install(output, prepared, update) {
   fs.writeFileSync(launcherPath, prepared.launcher);
   fs.mkdirSync(path.join(output, 'profile'), { recursive: true });
   fs.writeFileSync(path.join(output, 'Launch Wand Local.cmd'), '@echo off\r\nstart "Wand Local" /D "%~dp0app-12.72.0" "%~dp0app-12.72.0\\Wand.exe"\r\n');
-  const manifest = { version: supported.version, source: prepared.source, hashes: measured, launcher: hash(prepared.launcher), changes: prepared.changes, builtAt: new Date().toISOString(), profile: 'profile', backup: oldMoved ? path.relative(output, backup) : null };
+  const manifest = { version: supported.version, source: prepared.source, hashes: measured, features: { localPins: true }, launcher: hash(prepared.launcher), changes: prepared.changes, builtAt: new Date().toISOString(), profile: 'profile', backup: oldMoved ? path.relative(output, backup) : null };
   fs.writeFileSync(path.join(output, 'build-manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   return manifest;
 }
@@ -240,7 +257,7 @@ function main() {
     const manifestPath = path.join(args.output, 'build-manifest.json');
     const manifest = fs.existsSync(manifestPath) ? JSON.parse(fs.readFileSync(manifestPath)) : null;
     const expected = manifest?.hashes || { archive: supported.manualArchive, executable: supported.manualExecutable, helper: supported.patchedHelper };
-    const result = verifyApp(path.join(args.output, `app-${supported.version}`), expected);
+    const result = verifyApp(path.join(args.output, `app-${supported.version}`), expected, manifest?.features?.localPins === true);
     assert(hash(fs.readFileSync(path.join(args.output, 'Wand.exe'))) === supported.launcher, 'Root launcher identity mismatch');
     console.log(JSON.stringify({ status: 'verified on disk; gameplay is a separate test', ...result }, null, 2));
     return;
